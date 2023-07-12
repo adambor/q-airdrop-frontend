@@ -1,20 +1,22 @@
 import './App.css';
 import "bootstrap/dist/css/bootstrap.css";
-import React, {useRef, useState} from "react";
+import React, {useEffect, useRef, useState} from "react";
 import {Alert, Button, Card, Container, Navbar} from "react-bootstrap";
 import ValidatedInput from "./components/ValidatedInput";
 
 const Q_NETWORK = {
-    chainId: "0x"+(35443).toString(16),
-    chainName: "Q Testnet",
+    chainId: "0x"+(35441).toString(16),
+    chainName: "Q Mainnet",
     nativeCurrency: {
         name: "Q Token",
         symbol: "QT",
         decimals: 18
     },
-    blockExplorerUrls: ["https://explorer.qtestnet.org"],
-    rpcUrls: ["https://rpc.qtestnet.org"]
+    blockExplorerUrls: ["https://explorer.q.org"],
+    rpcUrls: ["https://rpc.q.org"]
 };
+
+const backendUrl = "http://localhost:24001"; //URL of the backend nodejs instance
 
 async function usesRightChain(chain) {
     const res = await window.ethereum.request({
@@ -63,6 +65,45 @@ function App() {
 
     const [address, setAddress] = useState(null);
 
+    const [voucherCode, setVoucherCode] = useState(null);
+
+    useEffect(() => {
+        const params = new URLSearchParams(window.location.search);
+        const _voucherCode = params.get("code");
+        console.log("Using voucher code from URL: ", _voucherCode);
+        if(_voucherCode!=null) setVoucherCode(_voucherCode);
+    }, []);
+
+    const claimToken = async(noCheck) => {
+        setErrorMessage(null);
+        if(!noCheck && !voucherRef.current.validate()) {
+            return;
+        }
+        setProcessing(true);
+        try {
+            const response = await fetch(backendUrl+'/claim', {
+                method: 'POST',
+                body: JSON.stringify({
+                    address,
+                    voucher: voucherCode || voucherRef.current.getValue()
+                }),
+                headers: {
+                    'Content-type': 'application/json',
+                }
+            });
+            const data = await response.json();
+            if(data.code===10000) {
+                //Success
+                setStep(3);
+                return;
+            }
+            setErrorMessage(data.msg);
+        } catch (e) {
+            setErrorMessage("Failed to claim the tokens, please retry later!");
+        }
+        setProcessing(false);
+    };
+
     const connectwalletHandler = async () => {
         setProcessing(true);
         setErrorMessage(null);
@@ -77,6 +118,7 @@ function App() {
                 setProcessing(false);
                 if(await usesRightChain(Q_NETWORK)) {
                     setStep(2);
+                    if(voucherCode!=null) claimToken(true);
                 } else {
                     setStep(1);
                 }
@@ -96,41 +138,12 @@ function App() {
         try {
             if(await switchMetamaskToChain(Q_NETWORK)) {
                 setStep(2);
+                if(voucherCode!=null) claimToken(true);
             } else {
                 setErrorMessage("Failed to switch network, please retry!");
             }
         } catch (e) {
             setErrorMessage("Failed to switch network, please retry! "+e.message);
-        }
-        setProcessing(false);
-    };
-
-    const claimToken = async() => {
-        setErrorMessage(null);
-        if(!voucherRef.current.validate()) {
-            return;
-        }
-        setProcessing(true);
-        try {
-            const response = await fetch('https://node3.gethopa.com:34001/claim', {
-                method: 'POST',
-                body: JSON.stringify({
-                    address,
-                    voucher: voucherRef.current.getValue()
-                }),
-                headers: {
-                    'Content-type': 'application/json',
-                }
-            });
-            const data = await response.json();
-            if(data.code===10000) {
-                //Success
-                setStep(3);
-                return;
-            }
-            setErrorMessage(data.msg);
-        } catch (e) {
-            setErrorMessage("Failed to claim the tokens, please retry later!");
         }
         setProcessing(false);
     };
@@ -171,6 +184,8 @@ function App() {
                                 <ValidatedInput
                                     onValidate={(value) => value==null || value.length===0 ? "Cannot be empty" : null}
                                     inputRef={voucherRef}
+                                    value={voucherCode}
+                                    onChange={(val) => setVoucherCode(val)}
                                     type="text"
                                     label={(
                                         <span className="fw-semibold">Voucher code</span>
